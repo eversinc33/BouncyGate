@@ -144,7 +144,7 @@ proc getSyscall*(tableEntry: var HG_TABLE_ENTRY): bool =
 
     return true
 
-proc NtProtectVirtualMemory(ProcessHandle: Handle, BaseAddress: var PVOID, NumberOfBytesToProtect: PULONG, NewAccessProtection: ULONG, OldAccessProtection: PULONG): NTSTATUS {.asmNoStackFrame.} =
+proc NtProtectVirtualMemory(ProcessHandle: Handle, BaseAddress: PVOID, NumberOfBytesToProtect: PULONG, NewAccessProtection: ULONG, OldAccessProtection: PULONG): NTSTATUS {.asmNoStackFrame.} =
     asm """
         mov r10, rcx
         mov eax, `ntProtectSyscall`
@@ -153,7 +153,7 @@ proc NtProtectVirtualMemory(ProcessHandle: Handle, BaseAddress: var PVOID, Numbe
         ret
     """
 
-proc NtWriteVirtualMemory(ProcessHandle: HANDLE, BaseAddress: var PVOID, Buffer: PVOID, NumberOfBytesToWrite: ULONG, NumberOfBytesWritten: PULONG): NTSTATUS {.asmNoStackFrame.} =
+proc NtWriteVirtualMemory(ProcessHandle: HANDLE, BaseAddress: PVOID, Buffer: PVOID, NumberOfBytesToWrite: ULONG, NumberOfBytesWritten: PULONG): NTSTATUS {.asmNoStackFrame.} =
     asm """
         mov r10, rcx
         mov eax, `ntWriteSyscall`
