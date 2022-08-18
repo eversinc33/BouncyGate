@@ -1,6 +1,6 @@
 # HellsGate Trampoline
 
-This is a modified version of @zimawhit3's implementation of HellsGate in Nim, with additionally making sure that all syscalls go through NTDLL, by replacing the syscall instructions with a JMP to a syscall instruction in NTDLL.
+This is a modified version of [@zimawhit3's implementation](https://github.com/zimawhit3/HellsGateNim) of HellsGate in Nim, with additionally making sure that all syscalls go through NTDLL, by replacing the syscall instructions with a JMP to a syscall instruction in NTDLL.
 
 The syscalls are then used to patch AMSI as a PoC.
 
