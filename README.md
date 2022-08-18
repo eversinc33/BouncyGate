@@ -6,5 +6,4 @@ The syscalls are then used to patch AMSI as a PoC.
 
 ## Credits
 
-props to  for their paper on this technique.
 If you would like to learn more about how HellsGate works, you can find smelly__vx's (@RtlMateusz) and am0nsec's (@am0nsec) paper at the [Vx-Underground Github](https://github.com/vxunderground/VXUG-Papers/tree/main/Hells%20Gate).
