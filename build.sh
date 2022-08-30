@@ -1,3 +1,1 @@
-nim c -d:danger -d:release --opt:size -d:mingw HellsGate.nim
-mv HellsGate.exe gellshate.exe
-strip gellshate.exe
+nim c -d:danger -d:release -d:strip --opt:size -d:mingw HellsGate.nim

