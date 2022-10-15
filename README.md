@@ -6,6 +6,8 @@ See https://eversinc33.github.io/posts/avoiding-direct-syscall-instructions/ for
 
 If you would like to learn more about how HellsGate works, you can find smelly__vx's (@RtlMateusz) and am0nsec's (@am0nsec) paper at the [Vx-Underground Github](https://github.com/vxunderground/VXUG-Papers/tree/main/Hells%20Gate).
 
+Install mingw 8.0.0-1, since the newest version has some issues related to relocation that make compilation impossible.
+
 ### Usage
 
 First, the syscall stub has to be defined:
