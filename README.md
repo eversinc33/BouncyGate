@@ -17,7 +17,7 @@ proc NtProtectVirtualMemory(ProcessHandle: Handle, BaseAddress: PVOID, NumberOfB
     asm """
         mov r10, rcx
         mov eax, `ntProtectSyscall`
-        mov r11, `syscallJumpAddress`
+        mov r11, `ntProtectSyscallJumpAddress`
         jmp r11
         ret
     """
@@ -26,7 +26,8 @@ proc NtProtectVirtualMemory(ProcessHandle: Handle, BaseAddress: PVOID, NumberOfB
 Then the syscall number can be resolved at runtime and the syscall can be used afterwards:
 
 ```nim
-ntProtectSyscall = resolve_syscall("NtProtectVirtualMemory").wSysCall
-
+var ntProtect = resolve_syscall("NtProtectVirtualMemory")
+ntProtectSyscall = ntProtect.wSysCall
+ntProtectSyscallJumpAddress = ntProtect.syscallJumpAddress
 var status = NtProtectVirtualMemory(GetCurrentProcess(), &cs_addr, &p_len, cast[ULONG](PAGE_EXECUTE_READWRITE), &op)
 ```
