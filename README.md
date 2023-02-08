@@ -1,6 +1,6 @@
 # BouncyGate
 
-This is a modified version of [@zimawhit3's implementation](https://github.com/zimawhit3/HellsGateNim) of HellsGate in Nim, with additionally making sure that all syscalls go through NTDLL, by replacing the syscall instructions with a JMP to a syscall instruction in NTDLL. The syscalls are then used to patch AMSI as a PoC.
+This is a modified version of [@zimawhit3's implementation](https://github.com/zimawhit3/HellsGateNim) of HellsGate in Nim, with additionally making sure that all syscalls go through NTDLL, by replacing the syscall instructions with a JMP to the `syscall` instruction in NTDLL that corresponds to the syscall being executed. The syscalls are then used to patch AMSI as a PoC.
 
 See https://eversinc33.github.io/posts/avoiding-direct-syscall-instructions/ for an explanation.
 
