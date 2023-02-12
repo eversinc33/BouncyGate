@@ -28,6 +28,6 @@ Then the syscall number can be resolved at runtime and the syscall can be used a
 ```nim
 var ntProtect = resolve_syscall("NtProtectVirtualMemory")
 ntProtectSyscall = ntProtect.wSysCall
-ntProtectSyscallJumpAddress = ntProtect.syscallJumpAddress
+ntProtectSyscallJumpAddress = ntProtect.syscallJumpAddress # of course you can play around with the syscall jump addresses here and have it execute with the syscall fron a different function, to obfuscate your call
 var status = NtProtectVirtualMemory(GetCurrentProcess(), &cs_addr, &p_len, cast[ULONG](PAGE_EXECUTE_READWRITE), &op)
 ```
